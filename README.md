@@ -57,3 +57,6 @@ installer/         PyInstaller spec, Inno Setup script
 tests/             automated tests, mock OpenFX host, synthetic clip generator
 scripts/           build, benchmark, dev-run helpers
 ```
+
+## License
+MIT for this project's own source code (see `LICENSE`). Third-party components keep their own licenses: `THIRD_PARTY_LICENSES.md`.
