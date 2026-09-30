@@ -1,0 +1,7 @@
+# Runtime + build dependencies for the AI service, Companion, tests and installer.
+# opencv-python is pinned below 5: OpenCV 5 removed the HOG person detector and Haar face cascade used by Person/Face modes.
+numpy
+opencv-python<5
+onnxruntime-directml      # or onnxruntime-gpu for the CUDA provider on NVIDIA
+pytest
+pyinstaller

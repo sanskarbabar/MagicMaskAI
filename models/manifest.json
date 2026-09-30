@@ -1,0 +1,13 @@
+{
+ "source": "https://huggingface.co/vietanhdev/segment-anything-2-onnx-models",
+ "license": "Apache-2.0",
+ "note": "ONNX export of Meta SAM 2 (facebookresearch/sam2, Apache-2.0). Hashes recorded from the files downloaded and tested on 2026-09-30.",
+ "files": {
+  "sam2_hiera_base_plus.decoder.onnx": "666f00ce2664de31211a71068b6b74c3fc5aeee089ebeb2fc9c37834b9ce03b4",
+  "sam2_hiera_base_plus.encoder.onnx": "53b79cec15f2078b3c7410f00f00950a09ef02007dccf238859fec156e42cc8d",
+  "sam2_hiera_small.decoder.onnx": "e07f799d2afe8640ef21f47096ad154d9289bb53041191499ebbea8933ef047b",
+  "sam2_hiera_small.encoder.onnx": "f6a7c74dee5b2e71cce3f0475b778f0f28fa3e6c3646c79027302123d2197f40",
+  "sam2_hiera_tiny.decoder.onnx": "f5a4bd656c143899fb7f52d64ed81e6f6aeb37d477a0b6da50146ac7cf2187bf",
+  "sam2_hiera_tiny.encoder.onnx": "4cc015ee18520e93f8c7ddfeaca7436039daaaaf19721b4b96a8810a805e82f7"
+ }
+}
