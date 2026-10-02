@@ -1,4 +1,5 @@
-"""Companion smoke test: drives the real Tk app (hidden window) against a real service subprocess."""
+"""App smoke test: drives the real Tk app (hidden window) against a real service subprocess, through the four steps
+(open, click the subject, track, render) plus fixing a frame by clicking on it."""
 import os
 import subprocess
 import sys
@@ -14,17 +15,14 @@ from inference.client import Client, ServiceError
 from tests.synth import SCENARIOS, render, write_video
 
 
-def pump(app, seconds=0.0, until=None, timeout=90):
+def pump(app, until, timeout=90):
     t0 = time.time()
-    while True:
+    while time.time() - t0 < timeout:
         app.update()
-        if until and until():
+        if until():
             return True
-        if not until and time.time() - t0 >= seconds:
-            return True
-        if until and time.time() - t0 > timeout:
-            return False
         time.sleep(0.02)
+    return False
 
 
 @pytest.fixture()
@@ -63,54 +61,51 @@ def ev(x, y):
     return types.SimpleNamespace(x=x, y=y)
 
 
-def test_companion_end_to_end(app, tmp_path):
+def canvas_xy(app, gt, u_frac=None):
+    ys, xs = np.nonzero(gt > 127)
+    h, w = gt.shape
+    ox, oy = app.disp_off
+    return ox + xs.mean() / w * (w * app.disp_scale), oy + ys.mean() / h * (h * app.disp_scale)
+
+
+def test_four_steps_and_fix_a_frame(app, tmp_path):
     frames, gts = render(SCENARIOS["static"])
     video = str(tmp_path / "clip.mp4"); write_video(video, frames)
-    assert pump(app, until=lambda: app.st_state.get() == "Ready", timeout=60)
-    assert "detected" in app.msg.get("1.0", "end").lower() or "cpu" in app.msg.get("1.0", "end").lower()
+    assert pump(app, lambda: app.client is not None and "Ready" in app.msg.get("1.0", "end"), timeout=60)
 
-    # open the clip (bypass the file dialog)
-    app.video = video
-    app.mode.set("Custom"); app.tier.set("Draft")
+    # 1. open
+    app.load_clip(video)
+    assert pump(app, lambda: app.cur_bgr is not None and app.frames == len(frames), timeout=90)
+    assert app.out_dir.endswith("clip_cutout")
 
-    def work():
-        app._call("open", video=video, mode="custom", tier="draft")
-        return app.client.wait_idle()
-    app._async(work, "", lambda st: (setattr(app, "frames", st["frames"]), app.slider.configure(to=st["frames"] - 1), app._goto(0), app._refresh_timeline()))
-    assert pump(app, until=lambda: app.cur_bgr is not None, timeout=90)
-    assert app.frames == len(frames)
-
-    # click the subject at the ground-truth centroid (map image coords -> canvas coords)
+    # 2. click the subject -> a selection preview appears
     app.update()
-    ys, xs = np.nonzero(gts[0] > 127)
-    h, w = gts[0].shape
-    ox, oy = app.disp_off
-    cx = ox + xs.mean() / w * (w * app.disp_scale)
-    cy = oy + ys.mean() / h * (h * app.disp_scale)
-    app._click(ev(cx, cy), 1)
-    assert pump(app, until=lambda: app.preview_alpha is not None, timeout=60)
-    assert (app.preview_alpha > 127).mean() > 0.01                        # a mask preview appeared
+    app._click(ev(*canvas_xy(app, gts[0])), 1)
+    assert pump(app, lambda: app.preview_alpha is not None, timeout=60)
+    assert (app.preview_alpha > 127).mean() > 0.01
 
-    app.confirm()
-    assert pump(app, until=lambda: app.timeline.get("keyframes"), timeout=60)
-    app.track("forward")
-    assert pump(app, until=lambda: len(app.timeline.get("cached", [])) == app.frames, timeout=180)
-    assert app.st_state.get() in ("Done", "Ready", "Tracking")
+    # 3. track
+    app.track()
+    assert pump(app, lambda: len(app.timeline.get("cached", [])) == app.frames, timeout=180)
+    assert app.timeline["keyframes"] and app.timeline["keyframes"][0]["idx"] == 0
 
-    # every preview mode renders without error
-    for mode in ("Original", "Mask", "Alpha", "Transparent Checkerboard", "Overlay", "Cutout"):
-        app.preview.set(mode); app._redraw(); app.update()
-    # paint correction on the last frame
-    last = app.frames - 1
-    app._goto(last)
-    assert pump(app, until=lambda: app.frame_idx == last and app.cur_alpha is not None, timeout=30)
-    app.paint.set("Add Mask")
-    app.stroke = [[0.05, 0.05], [0.12, 0.05]]
-    app._release(ev(0, 0))
-    assert pump(app, until=lambda: any(k["kind"] == "manual" for k in (app.client.call("timeline")["keyframes"])), timeout=30)
-    # render (export) through the same client
-    out = str(tmp_path / "out")
-    app.client.call("export", dir=out)
-    st = app.client.wait_idle()
-    assert st["state"] == "done"
-    assert os.path.isfile(os.path.join(out, "alpha", "000000.png")) and os.path.isfile(os.path.join(out, "cutout", f"{last:06d}.png"))
+    # every view renders
+    for view in ("Overlay", "Cutout", "Original"):
+        app.preview.set(view); app._redraw(); app.update()
+
+    # fix a frame: go to a later frame, click on it -> the matte there is refined and saved as a keyframe
+    mid = app.frames // 2
+    app._goto(mid)
+    assert pump(app, lambda: app.frame_idx == mid and app.cur_alpha is not None, timeout=30)
+    app.update()
+    app._click(ev(*canvas_xy(app, gts[mid])), 1)
+    assert pump(app, lambda: any(k["idx"] == mid for k in app.timeline.get("keyframes", [])), timeout=60)
+    assert app.track_btn.cget("text") == "Track again"
+    app.track()
+    assert pump(app, lambda: app.track_btn.cget("text") == "Track", timeout=180)
+
+    # 4. render
+    app.render_out()
+    out = app.out_dir
+    assert pump(app, lambda: os.path.isfile(os.path.join(out, "cutout", f"{app.frames - 1:06d}.png")), timeout=120)
+    assert os.path.isfile(os.path.join(out, "alpha", "000000.png"))

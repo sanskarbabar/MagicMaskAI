@@ -14,29 +14,31 @@
 >   (see `docs/PHASE1_PROBES.md`).
 > - **[DECISION]** an engineering choice, not a fact.
 
-## 0.1 As-built status (v0.1)
+## 0.1 As built (v0.2) — read this first
 
-**Tested here** = automated tests in this repo pass on the reference machine. **Not tested in Resolve** = needs a person in Resolve
-(`docs/RESOLVE_TESTING.md`). Measured numbers are in `docs/BENCHMARKS.md`.
+v0.2 simplified the product to the KVN-Rotoscope style of workflow: **one app does everything, the Resolve effect only shows the result.**
+Sections below that describe the viewer overlay, in-plugin Analyze/Track buttons, paint modes, Studio panels or 57 parameters are the
+*original Phase-0 plan*; they were deliberately dropped.
 
-| Area | State |
+```
+ AI Cutout app (Tk) ──loopback JSON──> local service (Python) ──> SAM 2 (ONNX Runtime, DirectML/CUDA) + optical flow
+        │  open · click · Track · Render                             writes per-frame mattes to the cache
+        ▼
+   %LOCALAPPDATA%\AICutout\cache\<clip set>\masks\*.acm   ◄── read by ──  AICutout.ofx (Resolve effect, CPU, C++)
+```
+
+| Part | State |
 |---|---|
-| OFX plugin `AICutout.ofx` (57 parameters: Mode, Selection, Tracking, Quality, Edge, Output, Preview, buttons, status, manual-correction) | Built. **Loads in Resolve Free 21.1.0.17** (Resolve's log). Contract/render/overlay **tested against a mock OpenFX host**. Not tested in Resolve: clicking, painting, rendering on the timeline. |
-| Viewer overlay: click include/exclude points, brush painting, status banner (Draw Suite, `OverlayInteractV2`) | Built; tested against the mock host. Whether Resolve delivers pen events on each page is **unverified** (probe P2). |
-| Local AI service (loopback JSON, token) | Built; tested over a real socket and as a frozen executable. |
-| Segmentation: SAM 2 (tiny/small/base_plus) via ONNX Runtime; classical GrabCut fallback; Person/Object/Face/Custom mode wrappers | Built + tested. Person/Face auto-prompts use OpenCV HOG / Haar detectors (modest accuracy). |
-| Tracking: optical-flow propagation + SAM 2 refinement, clean-reference chain, appearance gate, re-acquisition, keyframes, bidirectional blend, manual corrections | Built + benchmarked on 10 synthetic scenarios. Weak points are listed in `docs/BENCHMARKS.md`. |
-| Temporal stabilization | Built + tested (flicker ≈ 0 on the synthetic suite; no lag on fast motion). |
-| Edge pipeline (levels cleanup, edge shift, guided-filter refinement, smoothing, feather, decontamination, spill) | Built in C++ (multi-threaded CPU), tested; same code in plugin and Python export. |
-| Output modes: Mask, Alpha, Cutout (real alpha), Composite; previews Original/Mask/Alpha/Checkerboard/Overlay/Cutout | Built; tested via mock host. |
-| Cache: per-frame CRC'd matte files, atomic writes, clip+settings+model key, persistent keyframes, cached-track reuse | Built + tested. |
-| Companion (viewer, timeline, progress/ETA, paint, previews, render) | Built; driven end-to-end by an automated test. |
-| Render/export: full-resolution 16-bit PNG alpha + cutout sequences | Built + tested. |
-| Installer (Inno Setup: admin install, uninstall, Resolve detection, models, launcher config), PyInstaller-frozen service | Built. **Install/uninstall logic tested via the per-user variant**; the admin variant is compiled the same way but not run here (UAC). |
-| **GPU (CUDA/OpenCL) render kernels in the OFX plugin** | **Not implemented.** Render is multi-threaded CPU; Resolve copies the frame to the CPU and back. AI *inference* is GPU-accelerated (DirectML/CUDA provider). |
-| SAM 2 *video* memory model / EdgeTAM / hair-matting model | **Not implemented** (see 4.3, 5). |
-| Workflow Integration panel / Resolve scripting helper | **Not implemented** (Studio-only; the Companion replaces them). |
-| macOS | Designed-for only. |
+| **Resolve effect** `AICutout.ofx`: Open AI Cutout, Update Matte, Output (Cutout/Matte/Overlay/Checkerboard/Original), Feather, Edge Shift, Clean Edge Colors, Frame Offset | Built; loads in Resolve Free 21.1.0.17; contract/render tested against a mock OpenFX host. No overlay, threads, sockets or ML inside it (imports only Windows system DLLs). Not tested on the Resolve timeline. |
+| **App**: Open → click subject → Track → Render; click any frame to fix it; timeline of tracked / low-confidence frames; progress + ETA | Built; driven end to end by an automated test. |
+| **Service**: SAM 2 segmentation, flow-propagate + SAM refine tracking with keyframes, appearance gate, re-acquisition, temporal stabilizer, CRC'd matte cache, full-resolution export | Built + tested + benchmarked (docs/BENCHMARKS.md). |
+| **Edge pipeline** (C++, multi-threaded CPU): cleanup, edge shift, guided-filter refinement, feather, decontamination/spill, outputs | Built + tested; same code in the effect and the app's Render. Fixed defaults (refine 0.5, balanced quality); no GPU kernels. |
+| **Installer** (Inno Setup; PyInstaller-frozen app+service) | Built; install/uninstall logic tested via the per-user variant. The admin installer is compiled the same way but not run here. |
+| Dropped from the original plan | viewer overlay & in-Resolve clicking, in-plugin analysis jobs, brush painting, Mode/Quality/Edge parameter groups, Composite-over-background, Workflow-Integration panel, CUDA/OpenCL render kernels, SAM 2 memory tracker, hair-matting model, macOS |
+
+IPC is **loopback TCP on 127.0.0.1 plus a per-session token** (stored in `%LOCALAPPDATA%\AICutout\service.json`), used only between the app and the service;
+the effect does not talk to the service at all — it just reads the cache. The service commands are: `hello, open, status, timeline, get_frame, get_mask, segment, commit,
+refine, track, cancel, reset, export, shutdown`.
 
 ## 0. Target edition: DaVinci Resolve **Free** (confirmed by the user, 21.1)
 

@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 
 from core.cache.frame_store import QUALITY_LONG_EDGE, FrameStore
-from core.cache.matte_store import (FLAG_LOW_CONFIDENCE, FLAG_MANUAL, FLAG_PROVISIONAL, MatteSet, file_fingerprint, set_active,
+from core.cache.matte_store import (FLAG_LOW_CONFIDENCE, FLAG_MANUAL, MatteSet, file_fingerprint, set_active,
                                     set_name, settings_hash)
 from core.segmentation.base import EngineError, Prompts, SegmentationEngine
 from core.segmentation.registry import create_engine
@@ -185,23 +185,6 @@ class Session:
         self.preview_mask, self.preview_frame = prop.mask, idx
         return prop.mask, prop.confidence
 
-    def write_provisional(self, idx: int, mask: np.ndarray, confidence: float) -> None:
-        """Write a not-yet-confirmed mask so the viewer can show it (not a keyframe)."""
-        if idx in self.keyframes and self.keyframes[idx].kind == "manual":
-            return
-        self._write(idx, mask, confidence, FLAG_PROVISIONAL)
-
-    def mark_manual(self, idx: int) -> bool:
-        """Turn the mask currently stored for idx into a manual keyframe (used by 'Correct Frame')."""
-        a = self.alpha(idx)
-        if a is None:
-            return False
-        rec = self.matte.read_frame(idx)
-        self.keyframes[idx] = Keyframe(idx, "manual", [], None)
-        self._write(idx, a, max(rec.confidence, 0.9), FLAG_MANUAL)
-        self.save_state()
-        return True
-
     def commit_keyframe(self, idx: int, points, box=None, manual=False, mask: Optional[np.ndarray] = None,
                         confidence: float = 1.0) -> None:
         m = mask if mask is not None else (self.preview_mask if self.preview_frame == idx else None)
@@ -213,32 +196,6 @@ class Session:
         self.save_state()
 
     # ------------------------------------------------------------------ manual correction
-    def correct_frame(self, idx: int, add_polys: List[List[Tuple[float, float]]],
-                      remove_polys: List[List[Tuple[float, float]]], brush: float = 12.0) -> np.ndarray:
-        """Paint strokes (polylines in proxy px) into / out of the current mask; result becomes a manual keyframe."""
-        base = self.alpha(idx)
-        if base is None:
-            base = self.preview_mask if self.preview_frame == idx else None
-        h, w = self.frames.size[1], self.frames.size[0]
-        if base is None:
-            base = np.zeros((h, w), np.float32)
-        m = base.copy()
-        for polys, val in ((add_polys, 1.0), (remove_polys, 0.0)):
-            layer = np.zeros((h, w), np.uint8)
-            for stroke in polys:
-                pts = np.array(stroke, np.float32).reshape(-1, 1, 2).round().astype(np.int32)
-                if len(pts) == 1:
-                    cv2.circle(layer, tuple(pts[0, 0]), int(brush), 255, -1)
-                else:
-                    cv2.polylines(layer, [pts], False, 255, int(max(1, brush * 2)), cv2.LINE_AA)
-            layer_f = cv2.GaussianBlur(layer.astype(np.float32) / 255.0, (0, 0), 0.8)
-            m = m * (1 - layer_f) + val * layer_f
-        self.keyframes[idx] = Keyframe(idx, "manual", [], None)
-        self._write(idx, m, 1.0, FLAG_MANUAL)
-        self.preview_mask, self.preview_frame = m, idx
-        self.save_state()
-        return m
-
     def refine_frame(self, idx: int, points, box=None) -> np.ndarray:
         """AI refinement of the current mask using extra include/exclude points (a 'soft' correction)."""
         cur = self.alpha(idx)
@@ -366,14 +323,6 @@ class Session:
             low = f.low_confidence and g.low_confidence
             self._store(FrameResult(i, alpha, conf, low, f.lost and g.lost))
         return done
-
-    def clear_range(self, start: int, end: int) -> None:
-        for i in range(start, end + 1):
-            if i not in self.keyframes:
-                self.matte.delete_frame(i)
-                self.confidence.pop(i, None)
-                self.flags.pop(i, None)
-        self.save_state()
 
     def reset(self) -> None:
         for i in self.matte.frames():

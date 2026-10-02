@@ -42,9 +42,9 @@ With MSVC: `cmake -S . -B build/msvc -G "Visual Studio 17 2022" -A x64 && cmake 
 | `test_native.py` | C++ edge pipeline (shift, feather, smooth, decontaminate, composite), Python↔C++ format parity | native DLL |
 | `test_session.py` / `test_service.py` | analyze → track → cache → correct workflow, over a real socket | — (GrabCut fallback) |
 | `test_sam.py` | SAM 2 click / negative point / box / multi-object | model weights |
-| `test_ofx_host.py` | the **real plugin DLL** under a mock OpenFX host: describe/instantiate, render (both row strides), overlay clicks | `build_host.sh` |
-| `test_companion.py` | the Companion driven programmatically (hidden Tk window) | a desktop session |
-| `test_e2e_installed.py` | host → *installed* plugin → auto-started *installed* service → SAM 2 → render | installed per-user build |
+| `test_ofx_host.py` | the **real plugin DLL** under a mock OpenFX host: describe/instantiate, render (both row strides), outputs, buttons | `build_host.sh` |
+| `test_companion.py` | the app driven end to end (open, click, track, fix a frame, render; hidden Tk window) | a desktop session |
+| `test_e2e_installed.py` | installed service tracks a clip with SAM 2 → installed plugin renders the alpha | installed per-user build |
 
 Quality/stability benchmarks: `python -m tests.bench_tracking --engine sam:tiny` and `python scripts/bench.py` (results in `docs/BENCHMARKS.md`).
 

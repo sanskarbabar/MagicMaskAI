@@ -1,48 +1,43 @@
 # Testing inside DaVinci Resolve
 
-Resolve has no headless plugin-test mode and this project has no way to click through Resolve's GUI automatically, so this file separates
-**what has been verified** from **what you need to check on your machine**.
+Resolve has no headless plugin-test mode and this project cannot click through Resolve's GUI automatically, so this file separates
+**what has been verified** from **what a person needs to check**.
 
-## Verified so far (Resolve **Free 21.1.0.17**, Windows 11, RTX 4060 Laptop)
-| # | Question | Result | Evidence |
-|---|---|---|---|
-| P1 | Does Resolve Free load a third-party OFX plugin? | **PASS (load).** | Resolve's log records `OpenFX \| OFX: loading com.aicutout.AICutout` on startup with `OFX_PLUGIN_PATH` pointing at our bundle, and no OpenFX error follows. The same log shows `OFX: loading com.TopazLabs.VideoEnhance` for the already-installed Topaz plugin. |
-| — | Does `OFX_PLUGIN_PATH` work for development without admin rights? | **Yes** | same run |
-| — | Does the plugin obey the OFX contract (describe, both contexts, instantiate, render, overlay)? | **Yes, against a mock host** | `tests/test_ofx_host.py` (14 tests, validation on) |
-| — | Does the whole chain work? | **Yes, against a mock host** | `tests/test_e2e_installed.py`: mock host → installed plugin → auto-started installed service → SAM 2 → alpha |
+## Verified (Resolve **Free 21.1.0.17**, Windows 11)
+| Question | Result | Evidence |
+|---|---|---|
+| Does Resolve Free load a third-party OpenFX plugin? | **Yes** | Resolve's log shows `OpenFX \| OFX: loading com.aicutout.AICutout` (v0.1 and the installed build) with no error after it. |
+| Does `OFX_PLUGIN_PATH` work for development without admin rights? | **Yes** | same run |
+| Does the effect obey the OFX contract (describe, both contexts, instantiate, render, buttons)? | **Yes, against a mock host** | `tests/test_ofx_host.py` (13 tests, host validation on) |
+| Does the whole chain work? | **Yes, against a mock host** | `tests/test_e2e_installed.py`: installed service tracks a clip with SAM 2 → installed plugin renders the alpha |
 
-**Not verified inside Resolve** (needs a person at the screen): everything below.
+The v0.2 effect (6 controls, no viewer overlay) has the same load behaviour as v0.1 (same entry points, no new dependencies — it now imports only Windows system DLLs); re-confirm with the checklist below.
 
 ## Checklist to run in Resolve
-Install the release build, or for development run `scripts\dev_run_resolve.ps1`. Record PASS/FAIL/notes and the Resolve edition/version.
+Install the release build, or for development run `scripts\dev_run_resolve.ps1`. Record PASS/FAIL and the Resolve edition/version.
 
-| ID | Test | How | Expected | If it fails |
-|---|---|---|---|---|
-| P1b | Plugin appears | *Color → Effects → OpenFX*; *Edit → Effects → OpenFX*; *Fusion → Effects → OpenFX* | "AI Cutout" listed (group "AI Cutout") | Check Resolve log; see TROUBLESHOOTING |
-| P2 | Viewer overlay events | Apply the effect, press **Add Selection**, click in the viewer on the Edit, Color and Fusion pages | a green marker appears at the click; the *Selection* readout / status text changes | click picking will need the Companion on that page |
-| P3 | Status text on the viewer | after a click | yellow "AI Cutout: …" banner top-left | overlay drawing (Draw Suite) unsupported → use the Companion for status |
-| P4 | Alpha reaches the timeline | Edit page: put the clip on V2 over a different clip on V1, Output = **Cutout** | V1 visible through the background of V2 | Color page: route the node's alpha output; Fusion: use MergeAlpha/Alpha output |
-| P4b | *Composite → Background Clip* | Fusion page, connect a second input | background shows through | use *Solid Color* / checker |
-| P5 | Analyze/Track from inside the plugin | set *Source File*, click subject, **Analyze**, **Track** | Status group shows state/frame/confidence/ETA (updates when the panel redraws or a control is touched — OpenFX has no timer) | use the Companion for live progress |
-| P6 | Render cache invalidation | after Track finishes, the viewer updates | mask appears without touching anything (plugin bumps a hidden *revision* parameter) | nudge any control once |
-| P7 | Persistence | save the project, reopen | selection points, *Source File*, *Matte Set* still set; mask still shows | file a bug with the log |
-| P8 | Copy/paste the node to another clip | | settings copy; *Matte Set* must be re-linked for the other clip | expected: mattes are per clip |
-| P9 | Playback | play 1080p / 4K with the mask | no stalls (render only reads cached mattes) | report timings from `plugin.log` |
-| P10 | Paint correction | *Paint Mode* → Add Mask, drag on the viewer | stroke turns into a manual keyframe (orange in the Companion timeline) | use the Companion's paint |
+| ID | Test | Expected |
+|---|---|---|
+| R1 | Edit/Color/Fusion page: Effects → OpenFX → **AI Cutout** | listed under the group "AI Cutout"; applies to a clip |
+| R2 | Press **Open AI Cutout** on the effect | the app window opens |
+| R3 | In the app: open the same clip, click the subject, Track, Render. In Resolve press **Update Matte** | the status line says "Matte linked (N frames)" and the viewer shows the cutout |
+| R4 | **Output = Cutout**, clip on V2 over a different clip on V1 (Edit page) | V1 is visible through V2's background (real alpha) |
+| R5 | Color page: apply to a node | Cutout alpha is available from the node's alpha output |
+| R6 | **Output = Overlay / Matte / Checkerboard / Original** | each view changes accordingly; Original is the untouched clip |
+| R7 | **Feather**, **Edge Shift**, **Clean Edge Colors** | the edge softens / grows / loses the old background colour |
+| R8 | Save the project, reopen | the effect still shows the cutout (it remembers which matte it uses) |
+| R9 | Play 1080p / 4K | no stalls (render only reads the cached matte); heavy 4K settings may be slow on CPU |
+| R10 | Trimmed clip | wrong timing → set **Frame Offset**; correct after |
 
-## Known Resolve-specific unknowns
-* Whether Resolve delivers **pen events for overlays on the Edit-page viewer** (Fusion and Color pages are the documented OpenFX overlay hosts).
-* How Resolve maps the plugin's frame `time` for trimmed clips → **Frame Offset** exists for that.
-* Whether a second (**Background**) input clip is shown outside Fusion.
+Known unknowns: whether Resolve's render cache needs **Update Matte** (or any control nudge) to refresh after a re-render; how Resolve numbers
+frames for trimmed clips (hence **Frame Offset**).
 
-## Install locations used
+## Install locations
 | | Path |
 |---|---|
-| OFX plugins (Resolve scans this) | `C:\Program Files\Common Files\OFX\Plugins` — plus any folders in `OFX_PLUGIN_PATH` |
-| Resolve scripts (unused) | `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts` |
-| Workflow Integration plugins (Studio only, unused) | `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins` |
+| OFX plugins (Resolve scans this) | `C:\Program Files\Common Files\OFX\Plugins`, plus any folder in `OFX_PLUGIN_PATH` |
 
 ## Version matrix
 | Resolve | Edition | Result |
 |---|---|---|
-| 21.1.0.17 | Free | plugin **loads** (P1). P1b–P10 pending user verification |
+| 21.1.0.17 | Free | effect **loads**. R1–R10 pending a person in Resolve |

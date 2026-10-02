@@ -62,15 +62,15 @@ def test_analyze_track_cache_and_correction(clip, tmp_path):
     s.track("forward")
     assert s.progress.message.startswith("Already tracked")
 
-    # 4. a manual correction becomes a manual keyframe and is never overwritten by re-tracking
+    # 4. fixing a frame by clicking on it: the refined matte becomes a manual keyframe and re-tracking never overwrites it
     mid = n // 2
-    before = s.alpha(mid).copy()
-    h, w = before.shape
-    s.correct_frame(mid, add_polys=[[(w * 0.5, h * 0.5)]], remove_polys=[], brush=25)
-    corrected = s.alpha(mid)
-    assert corrected.sum() >= before.sum() - 1 and mid in s.keyframes and s.keyframes[mid].kind == "manual"
-    s.track("both", recalc=True)
-    assert np.allclose(s.alpha(mid), corrected, atol=1 / 255)      # untouched by re-tracking
+    h, w = s.alpha(mid).shape
+    s.refine_frame(mid, [(w * 0.5, h * 0.55, 1)])
+    fixed = s.alpha(mid)
+    assert mid in s.keyframes and s.keyframes[mid].kind == "manual"
+    s.track("both")                                                  # keyframes changed -> tracks again around the fix
+    assert s.progress.state == "done" and not s.progress.message.startswith("Already")
+    assert np.allclose(s.alpha(mid), fixed, atol=1 / 255)           # the fixed frame is untouched by re-tracking
 
     # 5. state survives re-opening the session (persistent cache)
     s2 = make_session(path, tmp_path)

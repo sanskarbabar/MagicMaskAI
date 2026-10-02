@@ -9,7 +9,7 @@
 ; Defining DEV_USER_INSTALL builds a per-user variant (no admin, no Program Files) for testing the script itself.
 
 #define AppName "AI Cutout"
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #define AppPublisher "AI Cutout"
 #ifndef SourceRoot
   #define SourceRoot ".."
@@ -49,7 +49,7 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 
 [Components]
 Name: "plugin"; Description: "DaVinci Resolve OFX plugin"; Types: full nomodels custom; Flags: fixed
-Name: "service"; Description: "Local AI service and Companion"; Types: full nomodels custom; Flags: fixed
+Name: "service"; Description: "AI Cutout app and local AI service"; Types: full nomodels custom; Flags: fixed
 Name: "models"; Description: "SAM 2 tiny + small segmentation models (Apache-2.0). High Quality adds base_plus later via --fetch-models"; Types: full custom
 
 [Files]
@@ -66,12 +66,12 @@ Source: "{#SourceRoot}\build\plugin\AICutout.ofx.bundle\*"; DestDir: "{commoncf6
 Source: "{#SourceRoot}\models\weights\*.onnx"; Excludes: "sam2_hiera_base_plus.*"; DestDir: "{commonappdata}\AICutout\models"; Flags: ignoreversion skipifsourcedoesntexist; Components: models
 
 [Icons]
-Name: "{group}\AI Cutout Companion"; Filename: "{app}\aicutout-companion.exe"
+Name: "{group}\AI Cutout"; Filename: "{app}\aicutout-companion.exe"
 Name: "{group}\Uninstall AI Cutout"; Filename: "{uninstallexe}"
 
 [INI]
-; the plugin reads this to start the local service on demand (no Windows service, no admin at runtime)
-Filename: "{commonappdata}\AICutout\install.ini"; Section: "AICutout"; Key: "service"; String: """{app}\aicutout-service.exe"""
+; the plugin's 'Open AI Cutout' button reads this to start the app (the app starts the local service itself)
+Filename: "{commonappdata}\AICutout\install.ini"; Section: "AICutout"; Key: "app"; String: """{app}\aicutout-companion.exe"""
 Filename: "{commonappdata}\AICutout\install.ini"; Section: "AICutout"; Key: "version"; String: "{#AppVersion}"
 
 [Dirs]
@@ -79,7 +79,7 @@ Name: "{commonappdata}\AICutout"; Permissions: users-modify
 Name: "{commonappdata}\AICutout\models"; Permissions: users-modify
 
 [Run]
-Filename: "{app}\aicutout-companion.exe"; Description: "Open the AI Cutout Companion"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\aicutout-companion.exe"; Description: "Open AI Cutout"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM aicutout-service.exe"; Flags: runhidden skipifdoesntexist; RunOnceId: "StopService"

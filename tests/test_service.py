@@ -79,8 +79,8 @@ def test_missing_video_is_reported_not_crashed(service):
     assert c.call("hello")["version"]          # service still alive
 
 
-def test_plugin_commands_paint_export_reuse(service):
-    """Commands the OFX plugin uses: add_point (provisional matte), paint, confirm, session reuse, export."""
+def test_app_commands_refine_export_reuse(service):
+    """The commands the app uses: open (reused when identical), segment, commit, refine, track, timeline, export."""
     c, tmp = service
     frames, gts = render(SCENARIOS["static"])
     video = str(tmp / "v2.mp4"); write_video(video, frames)
@@ -92,19 +92,21 @@ def test_plugin_commands_paint_export_reuse(service):
 
     ys, xs = np.nonzero(gts[0] > 127)
     h, w = gts[0].shape
-    ap = c.call("add_point", frame=0, x=float(xs.mean() / w), y=float(ys.mean() / h), label=1)
-    assert ap["points"] == 1
-    m = c.decode_png(c.call("get_mask", idx=0)["png"])
-    assert m is not None and (m > 127).any()                            # provisional matte is visible immediately
+    pt = [float(xs.mean() / w), float(ys.mean() / h), 1]
+    c.call("commit", idx=0, points=[pt], normalized=True)
+    c.call("track", direction="both"); st = c.wait_idle()
+    assert st["state"] == "done" and st["cached"] == len(frames)
+    tl = c.call("timeline")
+    assert tl["frames"] == len(frames) and len(tl["cached"]) == len(frames) and tl["keyframes"][0]["idx"] == 0
 
-    c.call("paint", frame=0, add=[[[0.05, 0.05], [0.10, 0.05]]], remove=[], brush_norm=0.03)
-    m2 = c.decode_png(c.call("get_mask", idx=0)["png"])
-    assert m2[int(0.05 * m2.shape[0]), int(0.07 * m2.shape[1])] > 127      # painted region is now inside the mask
-    assert c.call("get_mask", idx=0)["manual"]
+    mid = len(frames) // 2                                              # fix a frame by clicking on it
+    c.call("refine", idx=mid, points=[pt], normalized=True)
+    assert c.call("get_mask", idx=mid)["manual"]
+    c.call("track", direction="both"); c.wait_idle()
+    assert any(k["kind"] == "manual" for k in c.call("timeline")["keyframes"])
 
-    c.call("track", direction="forward"); c.wait_idle()
     out = tmp / "export"
-    c.call("export", dir=str(out), edge={"feather": 2, "refine": 0.5}, formats=["alpha", "cutout"])
+    c.call("export", dir=str(out), edge={"feather": 2, "refine": 0.5, "decontaminate": 0.6, "spill": 0.3})
     st = c.wait_idle()
     assert st["state"] == "done" and "Render complete" in st["message"]
     import cv2
@@ -112,4 +114,4 @@ def test_plugin_commands_paint_export_reuse(service):
     cut = cv2.imread(str(out / "cutout" / "000005.png"), cv2.IMREAD_UNCHANGED)
     assert a.dtype == np.uint16 and a.shape == gts[0].shape
     assert cut.shape == gts[0].shape + (4,) and cut.dtype == np.uint16
-    assert (a > 30000).mean() > 0.02 and (a < 1000).mean() > 0.5                    # a real matte, not a solid colour
+    assert (a > 30000).mean() > 0.02 and (a < 1000).mean() > 0.5        # a real matte, not a solid colour

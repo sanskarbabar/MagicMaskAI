@@ -1,61 +1,52 @@
-# AI Cutout
+# MagicMaskAI
 
-**AI-powered video subject isolation and tracking for DaVinci Resolve.**
-Click a person or object, let a local AI segment it, track it through the clip, correct mistakes by hand, and output a
-transparent cutout (a real alpha channel) to composite over another background. Everything runs on your computer — no video is ever uploaded.
+**AI rotoscoping for DaVinci Resolve, kept simple.** Open a clip, click the subject once, press Track, press Render.
+A local AI cuts the subject out and follows it through the whole clip. Everything runs on your computer; no video is uploaded.
 
-> This is an independent third-party tool. It is not Magic Mask, does not use or replace it, and makes no compatibility claim with it.
-> Features below are described as **implemented**, **tested** (automated tests in this repo) or **unverified** (needs a person in Resolve).
+> An independent third-party tool. It is not Blackmagic Design's Magic Mask, does not use it, and makes no compatibility claim with it.
 
-## What you get
-| Piece | What it is |
+## How it works
+| Step | What you do |
 |---|---|
-| **AI Cutout** OpenFX plugin | Appears under *Effects → OpenFX → AI Cutout*. Mode (Person/Object/Face/Custom), Selection (click include/exclude, brush, feather, edge refinement), Tracking (forward/backward/both/recalculate), Quality (Draft/Balanced/High), Edge (feather, smooth, edge shift, spill suppression, decontaminate), Output (Mask/Alpha/Cutout/Composite), Preview (Original/Mask/Alpha/Checkerboard/Overlay/Cutout), buttons *Analyze / Track / Preview / Render / Reset*, and live status (state, frame, tracking, AI confidence, ETA). |
-| **AI service** | Local process (SAM 2 on your GPU via ONNX Runtime/DirectML, CPU fallback). Segmentation, optical-flow tracking, temporal stabilization, matte cache. Loopback-only. |
-| **Companion** | Desktop window with a frame viewer, timeline (tracked / low-confidence / keyframes / confidence curve), progress bar with ETA, paint corrections, preview modes and Render. Works in **every** Resolve edition. |
-| **Installer** | Windows installer (admin) that places the plugin in the shared OpenFX folder, installs the service, Companion and models, and can be uninstalled cleanly. |
+| **1. Open** | Start **AI Cutout** (Start menu, or the **Open AI Cutout** button on the Resolve effect) and open your clip. |
+| **2. Click** | Left-click the subject to include it, right-click to exclude something. |
+| **3. Track** | Press **Track**. The AI follows the subject through the whole clip. |
+| **4. Render** | Press **Render**. In Resolve press **Update Matte** on the effect (or import the PNG sequences). |
 
-## Status (v0.1)
-* Target: **Windows 11 x64, DaVinci Resolve 21.x**. Developed and load-tested on **Resolve Free 21.1.0.17** (Resolve's log confirms it loads the plugin).
-* **Tested (automated, 42 tests):** matte cache and corruption handling, the C++ edge pipeline, segmentation with SAM 2, the analyze→track→correct→cache workflow, the local service over a real socket, the plugin DLL under a mock OpenFX host (describe/instantiate/render/overlay, both row-stride layouts), the Companion driven end to end, and the full chain through the *installed* product.
-* **Measured (synthetic clips, RTX 4060 Laptop):** tracking quality, flicker, speed, GPU memory — see [docs/BENCHMARKS.md](docs/BENCHMARKS.md). No real-time 4K AI is claimed.
-* **Unverified — needs you in Resolve:** click picking and painting on each page, alpha on the timeline, playback, project save/reload ([docs/RESOLVE_TESTING.md](docs/RESOLVE_TESTING.md) has the checklist).
-* **Not implemented:** GPU (CUDA/OpenCL) render kernels — the plugin renders on the CPU (multi-threaded); SAM 2's own video-memory tracker (a flow-propagate + SAM 2 refine tracker is used instead); a dedicated hair-matting model; Studio-only Workflow-Integration panel; macOS.
+A bad frame? Scrub to it, click on it (left = add, right = remove) and press **Track** again. Red frames on the timeline are the ones to check.
 
-### Known limitations (honest list)
-* The source file path is **not available to plugins** in Resolve: you set *Source File* once per clip. Retimed/compound clips are not supported (render them first).
-* Occlusion: during the occlusion the mask is flagged low-confidence and may be partial; the subject is re-acquired afterwards (synthetic occlusion test: mean IoU 0.77). Plan on correcting those frames.
-* Fine hair, glass, reflections and subjects that look like their background are hard for any current model; expect manual correction.
-* Person/Face auto-detect (when you have not clicked) uses simple OpenCV detectors — clicking is more reliable.
-* OpenFX has no timer or progress widget: the in-Resolve status fields refresh when the panel redraws or a control is touched; use the Companion for live progress.
-* Code-signing is not set up, so Windows SmartScreen may warn on the installer.
+**In Resolve** the *AI Cutout* effect (Effects → OpenFX) is just a viewer for the finished matte, with six controls:
+*Open AI Cutout*, *Update Matte*, *Output* (Cutout / Matte / Overlay / Checkerboard / Original), *Feather*, *Edge Shift*, *Clean Edge Colors*
+(plus *Frame Offset* for trimmed clips). *Cutout* gives the clip a real alpha channel to composite over a new background.
 
-## Quick start
-1. Install ([INSTALL.md](INSTALL.md)) and restart Resolve.
-2. Apply *AI Cutout* to a clip, set **Source File**, press **Add Selection**, click the subject, press **Analyze**, then **Track**.
-3. Set **Preview → Overlay** to inspect, paint corrections if needed, then **Output → Cutout** and composite (or **Render** for PNG sequences).
+## Status (v0.2)
+* **Windows 11 x64, DaVinci Resolve 21.x.** Developed on **Resolve Free 21.1.0.17**, where Resolve's log confirms it loads the plugin.
+* **Tested automatically (47 tests):** the AI workflow (click → track → fix → render), the cache, the C++ edge pipeline, the local service, the plugin DLL under a mock OpenFX host (render, every output, both buttons, bottom-up and negative-stride buffers), the app driven end to end, and the full chain through the installed build.
+* **Measured** (synthetic clips, RTX 4060 Laptop): see [docs/BENCHMARKS.md](docs/BENCHMARKS.md). No real-time 4K AI is claimed.
+* **Not yet verified inside Resolve:** the effect rendering on the timeline and the two buttons ([docs/RESOLVE_TESTING.md](docs/RESOLVE_TESTING.md)).
 
-## Documentation
-[ARCHITECTURE.md](ARCHITECTURE.md) · [BUILD.md](BUILD.md) · [INSTALL.md](INSTALL.md) · [TROUBLESHOOTING.md](TROUBLESHOOTING.md) ·
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) · [docs/BENCHMARKS.md](docs/BENCHMARKS.md) · [docs/RESOLVE_TESTING.md](docs/RESOLVE_TESTING.md)
+### Known limitations
+* Resolve does not give plugins the clip's file path, so you pick the clip in the app, and the effect uses the **latest** clip you analysed (press **Update Matte** to pin it). Trimmed clips need **Frame Offset**; retimed/compound clips are not supported (render them first).
+* During an occlusion the matte can be partial; the subject is picked up again afterwards (synthetic test: IoU 0.77). Fix those frames by clicking.
+* Fine hair, glass, reflections and look-alike backgrounds are hard for any current model.
+* The effect renders on the CPU (about 22–30 ms per 1080p frame, more at 4K). There are no GPU render kernels; the AI itself runs on the GPU.
+* The installer is unsigned, so Windows may show a SmartScreen warning.
+
+## Install
+See [INSTALL.md](INSTALL.md). Build from source: [BUILD.md](BUILD.md). Problems: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+Design notes: [ARCHITECTURE.md](ARCHITECTURE.md). Licenses of everything it uses: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ## Repository layout
 ```
-plugin/OFX/        OpenFX plugin (C++), vendored OpenFX 1.4 headers + Support library (BSD-3)
-plugin/UI/         Companion (Tk)
-core/segmentation  SegmentationEngine ABC, SAM 2 (ONNX), GrabCut fallback, Person/Object/Face/Custom modes
-core/tracking      flow, tracker, appearance gate, session (keyframes, corrections)
-core/temporal      temporal stabilizer
-core/masking       quality / stability metrics
-core/compositing   ctypes binding + PNG export of the native edge pipeline
-core/native        C++: matte reader, edge pipeline, output modes (shared by plugin and Python)
-core/cache         matte store (CRC'd frame files), proxy frame store
+plugin/OFX/        the Resolve effect (C++), vendored OpenFX 1.4 headers + Support library (BSD-3)
+plugin/UI/         the AI Cutout app (Tk)
+core/segmentation  SAM 2 (ONNX Runtime) and a model-free fallback
+core/tracking      optical-flow tracking, session (keyframes, fixes)
+core/native        C++: matte reader and edge pipeline (shared by the plugin and Python)
+core/cache         matte cache, proxy frames
 inference/         local service + client
-gpu/               hardware detection, provider selection, VRAM check
-models/            manifest (SHA-256) + fetch script (weights are not committed)
 installer/         PyInstaller spec, Inno Setup script
-tests/             automated tests, mock OpenFX host, synthetic clip generator
-scripts/           build, benchmark, dev-run helpers
+tests/ scripts/    automated tests, mock OpenFX host, build scripts
 ```
 
 ## License

@@ -14,9 +14,9 @@ mkdir -p "$OUT"
 SUP=$OFX/third_party/openfx
 clang++ -std=c++17 -O2 -DNDEBUG -DWIN32 $VFLAG -shared -static -Wall -Wno-unused-parameter -Wno-deprecated-declarations \
   -I$SUP/include -I$SUP/support_include -Icore/native -I$OFX \
-  $OFX/AICutout.cpp $OFX/service_link.cpp core/native/acm.cpp core/native/edge.cpp \
+  $OFX/AICutout.cpp $OFX/util.cpp core/native/acm.cpp core/native/edge.cpp \
   $SUP/support_library/ofxsCore.cpp $SUP/support_library/ofxsImageEffect.cpp $SUP/support_library/ofxsInteract.cpp \
   $SUP/support_library/ofxsLog.cpp $SUP/support_library/ofxsMultiThread.cpp $SUP/support_library/ofxsParams.cpp \
   $SUP/support_library/ofxsProperty.cpp $SUP/support_library/ofxsPropertyValidation.cpp \
-  -o "$OUT/AICutout.ofx" -lws2_32
+  -o "$OUT/AICutout.ofx"
 echo "built $OUT/AICutout.ofx"

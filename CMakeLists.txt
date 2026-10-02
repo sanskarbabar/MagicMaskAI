@@ -24,13 +24,12 @@ file(GLOB OFX_SUPPORT_SRC
   ${OFX_THIRD}/support_library/ofxsMultiThread.cpp ${OFX_THIRD}/support_library/ofxsParams.cpp
   ${OFX_THIRD}/support_library/ofxsProperty.cpp ${OFX_THIRD}/support_library/ofxsPropertyValidation.cpp)
 
-add_library(AICutout MODULE plugin/OFX/AICutout.cpp plugin/OFX/service_link.cpp ${CORE_SRC} ${OFX_SUPPORT_SRC})
+add_library(AICutout MODULE plugin/OFX/AICutout.cpp plugin/OFX/util.cpp ${CORE_SRC} ${OFX_SUPPORT_SRC})
 target_include_directories(AICutout PRIVATE ${OFX_THIRD}/include ${OFX_THIRD}/support_include core/native plugin/OFX)
 target_compile_definitions(AICutout PRIVATE WIN32)
 if(NOT AICUTOUT_HOST_VALIDATION)
   target_compile_definitions(AICutout PRIVATE kOfxsDisableValidation)
 endif()
-target_link_libraries(AICutout PRIVATE ws2_32)
 if(MINGW)
   # no runtime DLL dependencies next to the plugin
   target_link_options(AICutout PRIVATE -static)

@@ -25,13 +25,13 @@ from typing import Any, Dict, Optional
 import cv2
 import numpy as np
 
-from core.cache.matte_store import default_cache_root, get_active, list_sets, set_active
+from core.cache.matte_store import default_cache_root
 from core.segmentation.base import EngineError
 from core.segmentation.registry import create_engine
 from core.tracking.session import Session
 from gpu.devices import check_vram, detect_hardware
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 log = logging.getLogger("aicutout.service")
 
 
@@ -65,8 +65,6 @@ class Service:
         self.last_activity = time.time()
         self.idle_timeout_s = idle_timeout_s
         self.server: Optional[socketserver.ThreadingTCPServer] = None
-        self.pending_points: Dict[int, list] = {}      # frame -> [(x, y, label)] in proxy px (plugin overlay clicks)
-        self.frame_offset = 0
         self._engines: Dict[tuple, Any] = {}          # (mode, tier) -> loaded engine (model load takes seconds)
         self._engine_msgs: Dict[tuple, list] = {}
 
@@ -129,10 +127,6 @@ class Service:
         return {"version": VERSION, "hardware": self.hw.summary(), "device": self.hw.device_label,
                 "cache_root": self.cache_root}
 
-    def cmd_hardware(self, r):
-        return {"summary": self.hw.summary(), "gpus": [g.__dict__ for g in self.hw.gpus],
-                "providers": self.hw.providers, "selected": self.hw.selected}
-
     def _engine_for(self, mode: str, tier: str):
         key = (mode, tier)
         if key not in self._engines:
@@ -164,17 +158,9 @@ class Service:
 
             s = Session(video, self.cache_root, mode, tier, self.hw.selected)
             self.session = s
-            self.pending_points.clear()
             set_name = s.plan_set_name()
         self._start_job(opener)
         return {"opening": True, "set": set_name}
-
-    def cmd_close(self, r):
-        with self.lock:
-            if self.session:
-                self.session.cancel.set()
-            self.session = None
-        return {}
 
     def cmd_status(self, r):
         s = self.session
@@ -241,44 +227,6 @@ class Service:
                            self._proxy_box(s, r.get("box"), norm))
         return {"png": _png_b64(np.clip(m * 255, 0, 255).astype(np.uint8))}
 
-    def cmd_correct(self, r):
-        s = self._need_session()
-        m = s.correct_frame(int(r["idx"]), [[tuple(p) for p in st] for st in r.get("add", [])],
-                            [[tuple(p) for p in st] for st in r.get("remove", [])], float(r.get("brush", 12)))
-        return {"png": _png_b64(np.clip(m * 255, 0, 255).astype(np.uint8))}
-
-    def cmd_add_point(self, r):
-        """Viewer click from the OFX overlay: normalized 0..1 coordinates + frame; segments immediately."""
-        s = self._need_session()
-        idx = int(r["frame"]) + int(r.get("offset", 0))
-        idx = max(0, min(s.n_frames - 1, idx))
-        w, h = s.frames.size
-        pts = self.pending_points.setdefault(idx, [])
-        pts.append((float(r["x"]) * w, float(r["y"]) * h, 1 if int(r.get("label", 1)) else 0))
-        mask, conf = s.segment(idx, pts)
-        s.write_provisional(idx, mask, conf)          # visible in the viewer straight away, not yet a keyframe
-        return {"idx": idx, "points": len(pts), "confidence": conf, "area": float((mask > 0.5).mean())}
-
-    def cmd_confirm(self, r):
-        s = self._need_session()
-        idx = max(0, min(s.n_frames - 1, int(r["frame"]) + int(r.get("offset", 0))))
-        pts = self.pending_points.get(idx, [])
-        if pts:
-            s.commit_keyframe(idx, pts)
-        elif not s.mark_manual(idx):
-            raise EngineError("This frame has no mask yet. Analyze or paint first.")
-        return {"idx": idx}
-
-    def cmd_paint(self, r):
-        """Brush strokes from the OFX overlay (normalized 0..1 coordinates, top-down)."""
-        s = self._need_session()
-        idx = max(0, min(s.n_frames - 1, int(r["frame"]) + int(r.get("offset", 0))))
-        w, h = s.frames.size
-        conv = lambda strokes: [[(float(p[0]) * w, float(p[1]) * h) for p in st] for st in strokes]
-        brush = max(1.0, float(r.get("brush_norm", 0.012)) * w)
-        s.correct_frame(idx, conv(r.get("add", [])), conv(r.get("remove", [])), brush)
-        return {"idx": idx}
-
     def cmd_export(self, r):
         s = self._need_session()
         from core.compositing.export import export_sequence
@@ -292,24 +240,10 @@ class Service:
         self._start_job(export_sequence, s, out, edge, tuple(r.get("formats", ["alpha", "cutout"])), s.cancel)
         return {"exporting": True, "dir": out}
 
-    def cmd_clear_points(self, r):
-        self.pending_points.clear()
-        return {}
-
     def cmd_track(self, r):
         s = self._need_session()
         d = r.get("direction", "both")
         self._start_job(s.track, d, r.get("start"), r.get("end"), bool(r.get("recalc", False)))
-        return {"tracking": True}
-
-    def cmd_analyze_track(self, r):
-        """Plugin 'Track' button: confirm pending overlay clicks as keyframes, then track."""
-        s = self._need_session()
-        for idx, pts in list(self.pending_points.items()):
-            if pts:
-                s.commit_keyframe(idx, pts)
-        self.pending_points.clear()
-        self._start_job(s.track, r.get("direction", "both"), None, None, bool(r.get("recalc", False)))
         return {"tracking": True}
 
     def cmd_cancel(self, r):
@@ -320,15 +254,7 @@ class Service:
     def cmd_reset(self, r):
         s = self._need_session()
         s.reset()
-        self.pending_points.clear()
         return {}
-
-    def cmd_clear_range(self, r):
-        self._need_session().clear_range(int(r["start"]), int(r["end"]))
-        return {}
-
-    def cmd_list_sets(self, r):
-        return {"sets": list_sets(self.cache_root), "active": get_active(self.cache_root)}
 
     def cmd_shutdown(self, r):
         threading.Thread(target=self.shutdown, daemon=True).start()
